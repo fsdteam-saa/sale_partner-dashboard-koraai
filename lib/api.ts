@@ -10,7 +10,19 @@ export const authApi = {
 
 export const userApi = {
   getProfile: () => api.get("/user/profile"),
-  updateProfile: (data: FormData) => api.put("/user/profile", data, { headers: { "Content-Type": "multipart/form-data" } }),
+  updateProfile: (data: FormData) =>
+    api.put("/user/profile", data, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+  changePassword: (data: {
+    currentPassword: string;
+    newPassword: string;
+    confirmNewPassword: string;
+  }) => api.put("/user/change-password", data),
+};
+
+export const platformSettingsApi = {
+  get: () => api.get("/admin/settings"),
 };
 
 export const partnerApi = {
@@ -24,6 +36,16 @@ export const customersApi = {
   create: (data: object) => api.post("/customers", data),
   update: (id: string, data: object) => api.put(`/customers/${id}`, data),
   delete: (id: string) => api.delete(`/customers/${id}`),
+  getHistory: (id: string) => api.get(`/customers/${id}/history`),
+  getStats: () => api.get("/customers/stats"),
+  search: (q: string) => api.get("/customers/search", { params: { q } }),
+};
+
+export const dealsApi = {
+  getAll: (params?: object) => api.get("/deals", { params }),
+  getById: (id: string) => api.get(`/deals/${id}`),
+  create: (data: object) => api.post("/deals", data),
+  update: (id: string, data: object) => api.put(`/deals/${id}`, data),
 };
 
 export const leadsApi = {
@@ -33,8 +55,17 @@ export const leadsApi = {
   update: (id: string, data: object) => api.put(`/leads/${id}`, data),
   delete: (id: string) => api.delete(`/leads/${id}`),
   changeStatus: (id: string, data: { status: string }) => api.patch(`/leads/${id}/status`, data),
+  bulkUpdateStatus: (data: { leadIds: string[]; status: string }) =>
+    api.post("/leads/bulk-status", data),
   generate: (data: object) => api.post("/leads/generate", data),
-  convertToCustomer: (id: string) => api.post(`/leads/${id}/convert`),
+  convertToCustomer: (id: string, data?: object) =>
+    api.post(`/leads/${id}/convert`, data || {}),
+  getAnalytics: () => api.get("/leads/analytics"),
+};
+
+export const territoriesApi = {
+  getAll: (params?: object) => api.get("/territories", { params }),
+  getById: (id: string) => api.get(`/territories/${id}`),
 };
 
 export const earningsApi = {
@@ -54,7 +85,11 @@ export const supportApi = {
   close: (id: string) => api.patch(`/support/${id}/close`),
 };
 
-<<<<<<< HEAD
+export const activityApi = {
+  getAll: (params?: object) => api.get("/activity", { params }),
+  getStats: () => api.get("/activity/stats"),
+};
+
 export const servicesApi = {
   getAll: (params?: object) => api.get("/services", { params }),
   getById: (id: string) => api.get(`/services/${id}`),
@@ -63,8 +98,6 @@ export const servicesApi = {
   delete: (id: string) => api.delete(`/services/${id}`),
 };
 
-=======
->>>>>>> fd3cddaeb332227e318c1d182f3efe004b89ff35
 export const calendarApi = {
   getEvents: (params?: object) => api.get("/calendar", { params }),
   getInsights: () => api.get("/calendar/insights"),
@@ -74,7 +107,6 @@ export const calendarApi = {
   deleteEvent: (id: string) => api.delete(`/calendar/${id}`),
 };
 
-<<<<<<< HEAD
 export const appointmentsApi = {
   getAll: (params?: object) => api.get("/appointments", { params }),
   getById: (id: string) => api.get(`/appointments/${id}`),
@@ -88,8 +120,6 @@ export const employeesApi = {
   getAll: (params?: object) => api.get("/appointments/employees", { params }),
 };
 
-=======
->>>>>>> fd3cddaeb332227e318c1d182f3efe004b89ff35
 export const inboxApi = {
   getChats: (params?: object) => api.get("/inbox", { params }),
   getChatById: (chatId: string) => api.get(`/inbox/${chatId}`),
@@ -99,6 +129,8 @@ export const inboxApi = {
   sendMessage: (data: { recipientId: string; content: string }) => api.post("/inbox", data),
   deleteMessage: (conversationId: string, messageId: string) =>
     api.delete(`/inbox/${conversationId}/messages/${messageId}`),
+  getRecipients: (params?: { q?: string }) =>
+    api.get("/inbox/recipients", { params }),
 };
 
 export const koraAssistantApi = {

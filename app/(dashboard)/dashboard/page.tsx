@@ -115,7 +115,7 @@ export default function PartnerDashboardPage() {
         title={dashboard.partner?.businessName || "Partner Dashboard"}
         subtitle="Live partner performance, lead pipeline, and commission data."
       />
-      <div className="p-6 space-y-5">
+      <div className="space-y-5 p-3 sm:p-4 lg:p-6">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {dashboardLoading
             ? Array.from({ length: 4 }).map((_, index) => (

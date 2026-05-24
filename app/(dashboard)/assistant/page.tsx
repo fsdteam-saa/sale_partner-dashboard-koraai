@@ -73,7 +73,7 @@ export default function AssistantPage() {
   return (
     <div>
       <Header title="Assistant" subtitle="Your AI assistant for managing and optimizing the entire KoraAI platform." />
-      <div className="p-6">
+      <div className="p-3 sm:p-4 lg:p-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           <Card className="lg:col-span-2">
             <CardContent className="p-0 flex flex-col h-[calc(100vh-200px)]">

@@ -1,204 +1,545 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supportApi } from "@/lib/api";
 import { Header } from "@/components/layout/header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { getInitials, formatDate, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
-import { Search, Plus, HeadphonesIcon, BookOpen, Calendar, Shield, Code, CheckCircle, ExternalLink } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Search, Send } from "lucide-react";
+
+const STATUS_TABS = [
+  { value: "all", label: "All" },
+  { value: "open", label: "Open" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "resolved", label: "Resolved" },
+  { value: "closed", label: "Closed" },
+];
+
+const STATUS_BADGE: Record<string, any> = {
+  open: "default",
+  in_progress: "warning",
+  pending_approval: "secondary",
+  resolved: "success",
+  closed: "secondary",
+};
+
+const TYPE_OPTIONS = [
+  { value: "technical_issue", label: "Technical issue" },
+  { value: "account_access", label: "Account access" },
+  { value: "billing", label: "Billing" },
+  { value: "data_reports", label: "Data / Reports" },
+  { value: "integration", label: "Integration" },
+  { value: "other", label: "Other" },
+];
+
+const PRIORITY_OPTIONS = [
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "urgent", label: "Urgent" },
+];
 
 export default function SupportPage() {
-  const [activeView, setActiveView] = useState("Help Center");
+  const queryClient = useQueryClient();
+  const [tab, setTab] = useState("all");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [mobileView, setMobileView] = useState<"list" | "thread">("list");
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const limit = 10;
 
-  const categories = [
-    { icon: BookOpen, label: "Help Center", desc: "Browse articles and guides", count: 45 },
-    { icon: HeadphonesIcon, label: "My Requests", desc: "View and track your requests", count: 10 },
-    { icon: Plus, label: "Contact Support", desc: "Get help from our team", count: 0 },
-    { icon: CheckCircle, label: "System Status", desc: "View status page", count: 0, status: "operational" },
-  ];
+  const { data: listResponse, isLoading: listLoading } = useQuery({
+    queryKey: ["sp-tickets", page, tab],
+    queryFn: () =>
+      supportApi
+        .getAll({ page, limit, status: tab === "all" ? undefined : tab })
+        .then((response) => response.data),
+  });
 
-  const helpTopics = [
-    { icon: BookOpen, title: "Account & Login", desc: "Login issues, password reset, 2FA, account access and security.", articles: 18, color: "bg-blue-600" },
-    { icon: Calendar, title: "Calendar & Appointments", desc: "Sync issues, calendar settings, booking problems and fixes.", articles: 12, color: "bg-emerald-600" },
-    { icon: HeadphonesIcon, title: "Leads & Customers", desc: "Managing leads, customer profiles, status and activity.", articles: 10, color: "bg-purple-600" },
-    { icon: BookOpen, title: "Billing & Earnings", desc: "Payments, invoices, subscriptions and earning questions.", articles: 7, color: "bg-amber-600" },
-    { icon: Code, title: "Technical Issues", desc: "Bug reports, application errors, performance and system issues.", articles: 6, color: "bg-red-600" },
-    { icon: Shield, title: "Security & Privacy", desc: "Data protection, privacy settings, permissions and compliance.", articles: 6, color: "bg-cyan-600" },
-  ];
+  const tickets: any[] = listResponse?.data || [];
+  const meta = listResponse?.meta || { total: 0 };
+  const totalPages = Math.max(1, Math.ceil((meta.total || 0) / limit));
 
-  const popularArticles = [
-    { title: "How to reset a customer password", category: "Account & Login" },
-    { title: "Fix calendar sync issues", category: "Calendar & Appointments" },
-    { title: "How to add a new customer", category: "Leads & Customers" },
-    { title: "Understanding your earnings", category: "Billing & Earnings" },
-    { title: "Enable two-factor authentication (2FA)", category: "Account & Login" },
-  ];
+  const filteredTickets = useMemo(() => {
+    if (!search.trim()) return tickets;
+    const term = search.toLowerCase();
+    return tickets.filter(
+      (ticket) =>
+        ticket.subject?.toLowerCase().includes(term) ||
+        ticket.ticket_id?.toLowerCase().includes(term)
+    );
+  }, [tickets, search]);
 
-  const categoryColors: Record<string, string> = {
-    "Account & Login": "bg-blue-600/20 text-blue-400",
-    "Calendar & Appointments": "bg-emerald-600/20 text-emerald-400",
-    "Leads & Customers": "bg-purple-600/20 text-purple-400",
-    "Billing & Earnings": "bg-amber-600/20 text-amber-400",
-    "Technical Issues": "bg-red-600/20 text-red-400",
-    "Security & Privacy": "bg-cyan-600/20 text-cyan-400",
+  useEffect(() => {
+    if (!selectedId && tickets.length > 0) {
+      setSelectedId(tickets[0]._id);
+    }
+  }, [selectedId, tickets]);
+
+  const { data: detailResponse, isLoading: detailLoading } = useQuery({
+    queryKey: ["sp-ticket", selectedId],
+    queryFn: () =>
+      supportApi.getById(String(selectedId)).then((response) => response.data?.data),
+    enabled: Boolean(selectedId),
+  });
+
+  const selected: any = detailResponse;
+
+  const replyMutation = useMutation({
+    mutationFn: () => supportApi.reply(String(selectedId), { message: replyText }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sp-ticket", selectedId] });
+      queryClient.invalidateQueries({ queryKey: ["sp-tickets"] });
+      setReplyText("");
+      toast.success("Reply sent");
+    },
+    onError: (error: any) =>
+      toast.error(error?.response?.data?.message || "Failed to send reply"),
+  });
+
+  const closeMutation = useMutation({
+    mutationFn: () => supportApi.close(String(selectedId)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sp-ticket", selectedId] });
+      queryClient.invalidateQueries({ queryKey: ["sp-tickets"] });
+      toast.success("Ticket closed");
+    },
+    onError: (error: any) =>
+      toast.error(error?.response?.data?.message || "Failed to close"),
+  });
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selected?.replies?.length]);
+
+  const handleReply = () => {
+    if (!replyText.trim() || !selectedId) return;
+    replyMutation.mutate();
   };
 
   return (
     <div>
-      <Header title="Support" subtitle="Get help, solve issues or contact support." />
-      <div className="p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
-          {/* Left Sidebar */}
-          <div className="space-y-2">
-            {categories.map((cat) => {
-              const Icon = cat.icon;
-              return (
-                <button key={cat.label} onClick={() => setActiveView(cat.label)}
-                  className={`w-full flex items-start gap-3 px-3 py-3 rounded-xl text-left transition-colors ${activeView === cat.label ? "bg-blue-600/20 text-blue-400 border border-blue-600/20" : "text-gray-400 hover:bg-[#1e2d40] hover:text-gray-200"}`}>
-                  <Icon className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-xs font-medium">{cat.label}</p>
-                    <p className="text-[10px] text-gray-500">{cat.desc}</p>
-                  </div>
-                  {cat.status && <span className="ml-auto flex items-center gap-1 text-[10px] text-emerald-400"><span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />{cat.status}</span>}
-                </button>
-              );
-            })}
+      <Header
+        title="Support"
+        subtitle="Contact admin support and track your open requests."
+        action={
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            New Ticket
+          </Button>
+        }
+      />
 
-            <div className="mt-2 p-3 bg-emerald-600/10 border border-emerald-600/20 rounded-xl">
-              <div className="flex items-center gap-2 mb-1">
-                <CheckCircle className="w-4 h-4 text-emerald-400" />
-                <p className="text-xs font-medium text-emerald-400">System Status</p>
+      <div className="p-3 sm:p-4 lg:p-6">
+        <div className="mb-5 flex w-fit flex-wrap gap-1 rounded-lg bg-[#0d1a2d] p-1">
+          {STATUS_TABS.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => {
+                setTab(option.value);
+                setPage(1);
+              }}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                tab === option.value
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+          <Card className={`${mobileView === "list" ? "flex" : "hidden"} flex-col lg:flex lg:col-span-2`}>
+            <CardHeader>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500" />
+                <Input
+                  placeholder="Search tickets..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="h-8 pl-8 text-xs"
+                />
               </div>
-              <p className="text-[10px] text-emerald-400">All systems operational</p>
-              <button className="text-[10px] text-blue-400 mt-1">View status page →</button>
-            </div>
-          </div>
-
-          {/* Main Content */}
-          <div className="lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Help Center</CardTitle>
-                <p className="text-xs text-gray-500">Find answers, guides and solutions for common topics.</p>
-                <div className="relative mt-2">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                  <input className="w-full pl-9 h-9 text-sm bg-[#0d1526] border border-[#2a3547] rounded-lg text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    placeholder="Search for help topics..." />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">Popular topics ▾</span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {/* Topic Cards */}
-                <div className="grid grid-cols-2 gap-3 mb-5">
-                  {helpTopics.map(topic => {
-                    const Icon = topic.icon;
-                    return (
-                      <button key={topic.title} className="flex flex-col gap-2 p-3 bg-[#1e2d40] rounded-xl hover:bg-[#2a3547] transition-colors text-left">
-                        <div className={`w-8 h-8 rounded-lg ${topic.color} flex items-center justify-center flex-shrink-0`}>
-                          <Icon className="w-4 h-4 text-white" />
-                        </div>
-                        <div>
-                          <p className="text-xs font-semibold text-gray-200">{topic.title}</p>
-                          <p className="text-[10px] text-gray-500 leading-relaxed mt-0.5">{topic.desc}</p>
-                          <p className="text-[10px] text-blue-400 mt-1">{topic.articles} articles</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Popular Articles */}
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <p className="text-xs font-medium text-gray-300">Popular Articles</p>
-                    <button className="text-xs text-blue-400">View all articles →</button>
-                  </div>
-                  {popularArticles.map(a => (
-                    <button key={a.title} className="w-full flex items-center gap-3 py-2 hover:bg-[#1e2d40] rounded-lg px-2 transition-colors text-left">
-                      <BookOpen className="w-4 h-4 text-gray-500 flex-shrink-0" />
-                      <span className="text-xs text-gray-300 flex-1">{a.title}</span>
-                      <span className={`text-[9px] px-2 py-0.5 rounded-full ${categoryColors[a.category]}`}>{a.category}</span>
-                    </button>
+            </CardHeader>
+            <CardContent className="p-0">
+              {listLoading ? (
+                <div className="space-y-2 p-3">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <Skeleton key={index} className="h-16 w-full" />
                   ))}
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Right: Kora Assistant */}
-          <div className="space-y-4">
-            <Card className="border-blue-600/20">
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-lg">🤖</span>
-                  <p className="text-sm font-medium text-white">Kora Assistant</p>
-                  <span className="flex items-center gap-1 text-[10px] text-emerald-400 ml-auto"><span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />Online</span>
-                </div>
-                <p className="text-xs text-gray-400 mb-3">Hi Alex! I'm here to help you. I can try to solve your issue or connect you with our admins.</p>
-                <div className="space-y-1.5 mb-3">
-                  {[
-                    { text: "Fix calendar sync issues", sub: "Let's try to quickly fix." },
-                    { text: "Reset customer access", sub: "I can help you through this" },
-                    { text: "How do I add a new customer?", sub: "I'll guide you step by step" },
-                    { text: "See more suggestions", sub: "" },
-                  ].map((s, i) => (
-                    <button key={i} onClick={() => toast.info(s.text)}
-                      className="w-full flex items-center gap-2 px-2 py-1.5 bg-[#1e2d40] rounded-lg hover:bg-[#2a3547] text-left">
-                      <span className="text-[10px] text-blue-400 flex-shrink-0">→</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[10px] text-gray-200">{s.text}</p>
-                        {s.sub && <p className="text-[9px] text-gray-500">{s.sub}</p>}
+              ) : filteredTickets.length === 0 ? (
+                <p className="p-6 text-center text-xs text-gray-500">
+                  You have no support tickets yet.
+                </p>
+              ) : (
+                filteredTickets.map((ticket) => {
+                  const lastReply = ticket.replies?.[ticket.replies.length - 1];
+                  return (
+                    <button
+                      key={ticket._id}
+                      onClick={() => {
+                        setSelectedId(ticket._id);
+                        setMobileView("thread");
+                      }}
+                      className={`flex w-full items-start gap-3 border-b border-[#1e2d40] p-4 text-left transition-colors ${
+                        selected?._id === ticket._id
+                          ? "border-l-2 border-l-blue-500 bg-blue-600/10"
+                          : "hover:bg-[#0d1a2d]"
+                      }`}
+                    >
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1e2d40] text-[10px] font-bold text-gray-300">
+                        {ticket.ticket_id?.slice(-3) || "T"}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between">
+                          <p className="truncate text-xs font-medium text-gray-200">
+                            {ticket.subject}
+                          </p>
+                          <Badge
+                            variant={STATUS_BADGE[ticket.status] || "default"}
+                            className="ml-1 shrink-0 text-[9px]"
+                          >
+                            {ticket.status?.replace("_", " ")}
+                          </Badge>
+                        </div>
+                        <p className="text-[10px] text-gray-500">
+                          {ticket.ticket_id} · {ticket.priority}
+                        </p>
+                        <p className="text-[10px] text-gray-500">
+                          {timeAgo(
+                            lastReply?.createdAt ||
+                              ticket.updatedAt ||
+                              ticket.createdAt
+                          )}
+                        </p>
                       </div>
                     </button>
-                  ))}
-                </div>
-                {/* Mock conversation */}
-                <div className="space-y-2 mb-3">
-                  <div className="flex justify-end">
-                    <div className="bg-blue-600 rounded-xl px-3 py-1.5 max-w-[85%]">
-                      <p className="text-[10px] text-white">A customer says their calendar is not syncing between web and mobile.</p>
+                  );
+                })
+              )}
+              <div className="flex items-center justify-between border-t border-[#1e2d40] px-4 py-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={page === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-xs text-gray-500">
+                  Page {page} of {totalPages}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setPage((current) => current + 1)}
+                  disabled={page >= totalPages}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className={`${mobileView === "thread" ? "flex" : "hidden"} flex-col lg:flex lg:col-span-3`}>
+            {!selectedId ? (
+              <CardContent className="flex h-[calc(100vh-260px)] items-center justify-center">
+                <p className="text-sm text-gray-500">Select a ticket to view conversation</p>
+              </CardContent>
+            ) : detailLoading || !selected ? (
+              <CardContent className="space-y-3 p-4">
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-40 w-full" />
+              </CardContent>
+            ) : (
+              <CardContent className="flex h-[calc(100vh-240px)] flex-col p-0">
+                <div className="flex items-center justify-between border-b border-[#1e2d40] px-3 py-3 sm:px-4">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setMobileView("list")}
+                      className="-ml-1 rounded-lg p-1.5 text-gray-300 hover:bg-[#1e2d40] lg:hidden"
+                      aria-label="Back"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-gray-200">
+                        {selected.subject}
+                      </p>
+                      <p className="truncate text-[10px] text-gray-500">
+                        {selected.ticket_id} · {selected.priority}
+                      </p>
                     </div>
                   </div>
-                  <div className="flex items-start gap-1.5">
-                    <span className="text-sm">🤖</span>
-                    <div className="bg-[#1e2d40] rounded-xl px-3 py-1.5 max-w-[85%]">
-                      <p className="text-[10px] text-gray-200">I can help with that. This is a common sync issue that's usually caused by... Would you like me to start the "Calendar Sync Fix" workflow and try to fix it automatically?</p>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant={STATUS_BADGE[selected.status] || "default"}
+                      className="text-[10px]"
+                    >
+                      {selected.status?.replace("_", " ")}
+                    </Badge>
+                    {selected.status !== "closed" ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => closeMutation.mutate()}
+                        disabled={closeMutation.isPending}
+                      >
+                        Close
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="flex-1 space-y-3 overflow-y-auto p-4">
+                  <div className="py-2 text-center text-[10px] text-gray-500">
+                    Created {formatDate(selected.createdAt)}
+                  </div>
+                  {(selected.replies || []).length === 0 ? (
+                    <p className="text-center text-xs text-gray-500">
+                      No messages yet. Send your first message below.
+                    </p>
+                  ) : (
+                    (selected.replies || []).map((reply: any, index: number) => {
+                      const sender = reply.sender_id || {};
+                      const isAdmin = sender.role === "admin";
+                      return (
+                        <div
+                          key={reply._id || index}
+                          className={`flex ${isAdmin ? "items-start gap-2" : "justify-end"}`}
+                        >
+                          {isAdmin ? (
+                            <Avatar className="h-7 w-7 shrink-0">
+                              {sender.profileImage?.url ? (
+                                <AvatarImage
+                                  src={sender.profileImage.url}
+                                  alt={sender.name}
+                                />
+                              ) : (
+                                <AvatarFallback className="text-[9px]">
+                                  {getInitials(sender.name || "A")}
+                                </AvatarFallback>
+                              )}
+                            </Avatar>
+                          ) : null}
+                          <div
+                            className={`max-w-[80%] rounded-xl px-3 py-2 ${
+                              isAdmin
+                                ? "bg-[#1e2d40] text-gray-200"
+                                : "bg-blue-600 text-white"
+                            }`}
+                          >
+                            {isAdmin ? (
+                              <p className="mb-0.5 text-[10px] font-medium text-gray-400">
+                                {sender.name || "Admin"}
+                              </p>
+                            ) : null}
+                            <p className="whitespace-pre-wrap text-xs">{reply.message}</p>
+                            <p
+                              className={`mt-1 text-[10px] ${
+                                isAdmin ? "text-gray-500" : "text-blue-200"
+                              }`}
+                            >
+                              {timeAgo(reply.createdAt)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {selected.status !== "closed" ? (
+                  <div className="border-t border-[#1e2d40] p-3">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Type your reply..."
+                        value={replyText}
+                        onChange={(event) => setReplyText(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && !event.shiftKey) {
+                            event.preventDefault();
+                            handleReply();
+                          }
+                        }}
+                        className="flex-1"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={handleReply}
+                        disabled={!replyText.trim() || replyMutation.isPending}
+                      >
+                        <Send className="mr-1 h-3 w-3" />
+                        Send
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" className="flex-1 text-[10px] h-7" onClick={() => toast.success("Workflow started!")}>Yes, start workflow</Button>
-                    <Button variant="outline" size="sm" className="flex-1 text-[10px] h-7">No, contact support</Button>
-                  </div>
-                </div>
-                <input className="w-full text-xs bg-[#1e2d40] border border-[#2a3547] rounded-lg px-3 py-2 text-gray-300 placeholder:text-gray-500 focus:outline-none"
-                  placeholder="Type your message..." />
+                ) : (
+                  <p className="border-t border-[#1e2d40] p-3 text-center text-xs text-gray-500">
+                    This ticket is closed.
+                  </p>
+                )}
               </CardContent>
-            </Card>
-
-            {/* System Status */}
-            <Card className="border-emerald-600/20">
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <CheckCircle className="w-4 h-4 text-emerald-400" />
-                  <p className="text-sm font-medium text-white">System Status</p>
-                </div>
-                <p className="text-xs text-emerald-400 mb-1">All systems operational</p>
-                <p className="text-xs text-gray-400">Everything is running smoothly.</p>
-                <button className="text-xs text-blue-400 mt-2">View status page →</button>
-              </CardContent>
-            </Card>
-
-            <div className="p-3 bg-[#1e2d40] rounded-xl text-center">
-              <p className="text-xs text-gray-400 mb-1">Need more help?</p>
-              <p className="text-[10px] text-gray-500 mb-2">If you can't solve your issue, you can submit a request to our system administrators.</p>
-              <Button size="sm" className="w-full text-xs" onClick={() => toast.info("Submit request")}>Submit Request</Button>
-            </div>
-          </div>
+            )}
+          </Card>
         </div>
       </div>
+
+      <CreateTicketDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
+  );
+}
+
+function CreateTicketDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [subject, setSubject] = useState("");
+  const [type, setType] = useState("other");
+  const [priority, setPriority] = useState("medium");
+  const [description, setDescription] = useState("");
+
+  useEffect(() => {
+    if (!open) {
+      setSubject("");
+      setType("other");
+      setPriority("medium");
+      setDescription("");
+    }
+  }, [open]);
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      supportApi.create({ subject, type, priority, description }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sp-tickets"] });
+      toast.success("Ticket created");
+      onOpenChange(false);
+    },
+    onError: (error: any) =>
+      toast.error(error?.response?.data?.message || "Failed to create ticket"),
+  });
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!subject.trim()) {
+      toast.error("Subject is required");
+      return;
+    }
+    mutation.mutate();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>New Support Ticket</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="ticket-subject">Subject</Label>
+            <Input
+              id="ticket-subject"
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+              required
+            />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Type</Label>
+              <Select value={type} onValueChange={setType}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TYPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Priority</Label>
+              <Select value={priority} onValueChange={setPriority}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ticket-desc">Description</Label>
+            <textarea
+              id="ticket-desc"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              rows={5}
+              placeholder="Describe the issue in detail..."
+              className="w-full rounded-lg border border-[#2a3547] bg-[#0d1526] px-3 py-2 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex justify-end gap-2 border-t border-[#1e2d40] pt-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={mutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={mutation.isPending}>
+              {mutation.isPending ? "Creating..." : "Create ticket"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

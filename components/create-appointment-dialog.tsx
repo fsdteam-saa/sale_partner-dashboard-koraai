@@ -2,16 +2,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import {
-  appointmentsApi,
-  calendarApi,
-  customersApi,
-  employeesApi,
-  servicesApi,
-} from "@/lib/api";
+import { appointmentsApi, calendarApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -27,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CalendarDays, Clock, Plus, User } from "lucide-react";
+import { CalendarDays, Clock } from "lucide-react";
 import { DatePickerPopover } from "@/components/date-picker-popover";
 import { TimePickerPopover } from "@/components/time-picker-popover";
 
@@ -137,14 +130,10 @@ export function CreateAppointmentDialog({
   onCreated,
 }: Props) {
   const queryClient = useQueryClient();
-  const router = useRouter();
 
   const now = useMemo(() => new Date(), []);
   const oneHourLater = useMemo(() => new Date(Date.now() + 60 * 60 * 1000), []);
 
-  const [customerId, setCustomerId] = useState("");
-  const [employeeId, setEmployeeId] = useState("");
-  const [service, setService] = useState("");
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(toDateValue(now));
   const [startTime, setStartTime] = useState(toTimeValue(now));
@@ -156,64 +145,13 @@ export function CreateAppointmentDialog({
   const [notes, setNotes] = useState("");
   const [color, setColor] = useState(COLOR_SWATCHES[0]);
 
-  const [showAddCustomer, setShowAddCustomer] = useState(false);
-  const [newCustomerName, setNewCustomerName] = useState("");
-  const [newCustomerEmail, setNewCustomerEmail] = useState("");
-  const [newCustomerPhone, setNewCustomerPhone] = useState("");
-
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const { data: customersResponse } = useQuery({
-    queryKey: ["appointment-customers"],
-    queryFn: () =>
-      customersApi.getAll({ limit: 100 }).then((response) => response.data),
-    enabled: open,
-  });
-
-  const { data: employeesResponse } = useQuery({
-    queryKey: ["appointment-employees"],
-    queryFn: () =>
-      employeesApi.getAll({ limit: 100 }).then((response) => response.data),
-    enabled: open,
-  });
-
-  const { data: servicesResponse } = useQuery({
-    queryKey: ["appointment-services"],
-    queryFn: () =>
-      servicesApi
-        .getAll({ limit: 100, isActive: true })
-        .then((response) => response.data),
-    enabled: open,
-  });
-
-  const services = useMemo(() => {
-    const payload = servicesResponse?.data;
-    if (Array.isArray(payload)) return payload;
-    return [];
-  }, [servicesResponse?.data]);
-
-  const customers = useMemo(() => {
-    const payload = customersResponse?.data;
-    if (Array.isArray(payload)) return payload;
-    if (payload?.customers && Array.isArray(payload.customers)) return payload.customers;
-    return [];
-  }, [customersResponse?.data]);
-
-  const employees = useMemo(() => {
-    const payload = employeesResponse?.data;
-    if (payload?.employees && Array.isArray(payload.employees)) return payload.employees;
-    if (Array.isArray(payload)) return payload;
-    return [];
-  }, [employeesResponse?.data]);
-
   const resetForm = () => {
     const current = new Date();
     const later = new Date(current.getTime() + 60 * 60 * 1000);
-    setCustomerId("");
-    setEmployeeId("");
-    setService("");
     setTitle("");
     setDate(toDateValue(current));
     setStartTime(toTimeValue(current));
@@ -224,10 +162,6 @@ export function CreateAppointmentDialog({
     setLocation(DEFAULT_LOCATION);
     setNotes("");
     setColor(COLOR_SWATCHES[0]);
-    setShowAddCustomer(false);
-    setNewCustomerName("");
-    setNewCustomerEmail("");
-    setNewCustomerPhone("");
   };
 
   useEffect(() => {
@@ -240,68 +174,25 @@ export function CreateAppointmentDialog({
   useEffect(() => {
     if (submitError) setSubmitError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employeeId, date, startTime, endTime, allDay]);
-
-  const handleStartTimeChange = (value: string) => {
-    setStartTime(value);
-    setEndTime(addMinutes(value, duration));
-  };
+  }, [date, startTime, endTime, allDay]);
 
   const handleDurationChange = (value: number) => {
     setDuration(value);
     setEndTime(addMinutes(startTime, value));
   };
 
-  const handleEndTimeChange = (value: string) => {
-    setEndTime(value);
-    const diff = minutesBetween(startTime, value);
-    if (diff > 0) setDuration(diff);
-  };
-
-  const createCustomerMutation = useMutation({
-    mutationFn: async () => {
-      if (!newCustomerName.trim() || !newCustomerEmail.trim() || !newCustomerPhone.trim()) {
-        throw new Error("Name, email and phone are required");
-      }
-      const response = await customersApi.create({
-        name: newCustomerName.trim(),
-        email: newCustomerEmail.trim(),
-        phone: newCustomerPhone.trim(),
-      });
-      return response.data?.data;
-    },
-    onSuccess: (created: any) => {
-      queryClient.invalidateQueries({ queryKey: ["appointment-customers"] });
-      if (created?._id) setCustomerId(created._id);
-      toast.success("Customer added");
-      setShowAddCustomer(false);
-      setNewCustomerName("");
-      setNewCustomerEmail("");
-      setNewCustomerPhone("");
-    },
-    onError: (error: any) =>
-      toast.error(
-        error?.response?.data?.message || error?.message || "Failed to add customer"
-      ),
-  });
-
   const createMutation = useMutation({
     mutationFn: async () => {
       setSubmitError(null);
-      const selectedService = services.find((item: any) => item._id === service);
-      const finalService = selectedService?.name || "";
       const effectiveStart = allDay ? "08:00" : startTime;
       const effectiveEnd = allDay ? "17:00" : endTime;
 
       const response = await appointmentsApi.create({
-        customer: customerId,
-        employee: employeeId,
         appointmentDate: date,
         startTime: effectiveStart,
         endTime: effectiveEnd,
         bookingNotes: notes,
         title,
-        service: finalService,
         location,
         color,
       });
@@ -333,13 +224,9 @@ export function CreateAppointmentDialog({
   });
 
   const canSubmit =
-    Boolean(customerId) &&
-    Boolean(employeeId) &&
     Boolean(date) &&
     (allDay || (Boolean(startTime) && Boolean(endTime))) &&
     !createMutation.isPending;
-
-  const selectedCustomer = customers.find((item: any) => item._id === customerId);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -356,182 +243,6 @@ export function CreateAppointmentDialog({
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           {/* LEFT COLUMN */}
           <div className="space-y-4">
-            {/* Customer */}
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-gray-300">Customer</label>
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  <Select value={customerId} onValueChange={setCustomerId}>
-                    <SelectTrigger>
-                      <div className="flex items-center gap-2 truncate">
-                        <User className="h-3.5 w-3.5 text-gray-500" />
-                        <SelectValue placeholder="Select or search customer..." />
-                      </div>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {customers.length === 0 ? (
-                        <div className="px-3 py-2 text-xs text-gray-500">
-                          No customers found
-                        </div>
-                      ) : (
-                        customers.map((customer: any) => (
-                          <SelectItem key={customer._id} value={customer._id}>
-                            {customer.name}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowAddCustomer((value) => !value)}
-                  className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#2a3547] bg-[#0d1526] text-blue-400 hover:bg-[#162338]"
-                  aria-label="Add new customer"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-
-              {showAddCustomer ? (
-                <div className="space-y-2 rounded-lg border border-[#2a3547] bg-[#0d1526] p-3">
-                  <Input
-                    value={newCustomerName}
-                    onChange={(event) => setNewCustomerName(event.target.value)}
-                    placeholder="Name"
-                  />
-                  <Input
-                    value={newCustomerEmail}
-                    onChange={(event) => setNewCustomerEmail(event.target.value)}
-                    placeholder="Email"
-                    type="email"
-                  />
-                  <Input
-                    value={newCustomerPhone}
-                    onChange={(event) => setNewCustomerPhone(event.target.value)}
-                    placeholder="Phone"
-                  />
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowAddCustomer(false)}
-                      className="h-8 text-xs"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => createCustomerMutation.mutate()}
-                      disabled={createCustomerMutation.isPending}
-                      className="h-8 text-xs"
-                    >
-                      {createCustomerMutation.isPending ? "Adding..." : "Add customer"}
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            {/* Service */}
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-gray-300">Service</label>
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  <Select value={service} onValueChange={setService}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select service..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {services.length === 0 ? (
-                        <div className="px-3 py-2 text-xs text-gray-500">
-                          No services yet. Click + to manage.
-                        </div>
-                      ) : (
-                        services.map((item: any) => (
-                          <SelectItem key={item._id} value={item._id}>
-                            <div className="flex items-center justify-between gap-3">
-                              <span>{item.name}</span>
-                              <span className="text-[10px] text-gray-500">
-                                {item.duration} min · ${Number(item.price || 0).toFixed(0)}
-                              </span>
-                            </div>
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onOpenChange(false);
-                    router.push("/services");
-                  }}
-                  className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#2a3547] bg-[#0d1526] text-blue-400 hover:bg-[#162338]"
-                  aria-label="Open services page"
-                  title="Go to Services"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Employee */}
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-gray-300">Employee</label>
-              <Select value={employeeId} onValueChange={setEmployeeId}>
-                <SelectTrigger>
-                  <div className="flex items-center gap-2 truncate">
-                    <User className="h-3.5 w-3.5 text-gray-500" />
-                    <SelectValue placeholder="Select employee..." />
-                  </div>
-                </SelectTrigger>
-                <SelectContent>
-                  {employees.length === 0 ? (
-                    <div className="px-3 py-2 text-xs text-gray-500">
-                      No employees found
-                    </div>
-                  ) : (
-                    employees.map((employee: any) => {
-                      const id = employee.userId?._id || employee._id;
-                      const name = employee.userId?.name || employee.name || "Employee";
-                      const imageUrl =
-                        employee.userId?.profileImage?.url ||
-                        employee.profileImage?.url ||
-                        "";
-                      const initials = String(name)
-                        .split(" ")
-                        .map((part: string) => part[0])
-                        .slice(0, 2)
-                        .join("")
-                        .toUpperCase();
-                      return (
-                        <SelectItem key={id} value={id}>
-                          <div className="flex items-center gap-2">
-                            {imageUrl ? (
-                              <img
-                                src={imageUrl}
-                                alt={name}
-                                className="h-6 w-6 rounded-full object-cover"
-                              />
-                            ) : (
-                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600/20 text-[10px] font-medium text-blue-300">
-                                {initials || "EM"}
-                              </span>
-                            )}
-                            <span>{name}</span>
-                          </div>
-                        </SelectItem>
-                      );
-                    })
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-
             {/* Date */}
             <div className="space-y-2">
               <label className="text-xs font-medium text-gray-300">Date</label>
@@ -722,7 +433,7 @@ export function CreateAppointmentDialog({
 
         <div className="mt-4 flex flex-col gap-3 border-t border-[#1e2d40] pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-[11px] text-gray-500">
-            {selectedCustomer ? `Booking for ${selectedCustomer.name}` : "Select a customer to proceed"}
+            {title ? `Booking: ${title}` : "Add a title to proceed"}
           </div>
           <div className="flex gap-2">
             <Button
