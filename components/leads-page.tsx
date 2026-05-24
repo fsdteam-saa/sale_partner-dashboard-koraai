@@ -13,13 +13,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { formatCurrency, formatDate, getInitials } from "@/lib/utils";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, MoreHorizontal, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, MoreHorizontal, Plus, Search } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { LeadFormDialog } from "@/components/lead-form-dialog";
 
 const statusVariant: Record<string, any> = {
   new: "default",
@@ -37,6 +38,8 @@ export default function LeadsPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<any>(null);
 
   const { data: leadsResponse, isLoading } = useQuery({
     queryKey: ["sale-partner-leads", page, search, statusFilter],
@@ -122,7 +125,8 @@ export default function LeadsPage() {
               className="pl-9"
             />
           </div>
-          <Button onClick={() => toast.info("Use the lead creation form from the create screen.")}>
+          <Button onClick={() => { setEditing(null); setFormOpen(true); }}>
+            <Plus className="mr-1 h-4 w-4" />
             Add Lead
           </Button>
         </div>
@@ -195,6 +199,9 @@ export default function LeadsPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => { setEditing(lead); setFormOpen(true); }}>
+                                Edit
+                              </DropdownMenuItem>
                               {["contacted", "qualified", "proposal", "won", "lost"].map((status) => (
                                 <DropdownMenuItem
                                   key={status}
@@ -283,6 +290,8 @@ export default function LeadsPage() {
           </div>
         </div>
       </div>
+
+      <LeadFormDialog open={formOpen} onOpenChange={setFormOpen} lead={editing} />
     </div>
   );
 }

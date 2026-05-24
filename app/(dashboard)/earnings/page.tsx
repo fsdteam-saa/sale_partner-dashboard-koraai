@@ -1,236 +1,414 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { earningsApi } from "@/lib/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatCurrency, formatDate, getInitials } from "@/lib/utils";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
-import { DollarSign, TrendingUp, Clock, Download, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import {
+  AreaChart,
+  Area,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  DollarSign,
+  Download,
+  TrendingUp,
+} from "lucide-react";
 
-const chartData = [
-  { date: "May 1", earnings: 350 }, { date: "May 4", earnings: 420 }, { date: "May 8", earnings: 380 },
-  { date: "May 11", earnings: 460 }, { date: "May 14", earnings: 500 }, { date: "May 18", earnings: 540 },
-  { date: "May 21", earnings: 6540 }, { date: "May 25", earnings: 580 }, { date: "May 28", earnings: 620 }, { date: "May 31", earnings: 660 },
+const STATUS_TABS = [
+  { value: "all", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "paid", label: "Paid" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
-const mockDeals = [
-  { _id: "1", customer: "Cutz & Co.", type: "Barbershop", amount: 3599, commission: 619.97, commissionPct: "17%", closedAt: "2025-05-31", status: "paid" },
-  { _id: "2", customer: "Hair Legends", type: "Barbershop", amount: 1800, commission: 360, commissionPct: "20%", closedAt: "2025-05-30", status: "paid" },
-  { _id: "3", customer: "Fade House", type: "Barbershop", amount: 1400, commission: 378, commissionPct: "27%", closedAt: "2025-05-28", status: "pending" },
-  { _id: "4", customer: "The Barber Club", type: "Barbershop", amount: 3200, commission: 640, commissionPct: "20%", closedAt: "2025-05-25", status: "paid" },
-  { _id: "5", customer: "Gentlemen's Cuts", type: "Barbershop", amount: 3200, commission: 640, commissionPct: "20%", closedAt: "2025-05-23", status: "paid" },
-];
+const STATUS_BADGE: Record<string, "success" | "warning" | "destructive" | "secondary"> = {
+  paid: "success",
+  pending: "warning",
+  cancelled: "destructive",
+};
 
 export default function EarningsPage() {
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
-  const [period, setPeriod] = useState("Month");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const limit = 10;
 
-  const { data: dashboard, isLoading } = useQuery({
-    queryKey: ["earnings-dashboard"],
-    queryFn: () => earningsApi.getDashboard().then(r => r.data.data),
+  const { data: dashboardResponse, isLoading: dashboardLoading } = useQuery({
+    queryKey: ["sp-earnings-dashboard"],
+    queryFn: () => earningsApi.getDashboard().then((response) => response.data?.data),
   });
 
-  const { data: deals } = useQuery({
-    queryKey: ["earnings-deals", page],
-    queryFn: () => earningsApi.getAll({ page, limit: 10 }).then(r => r.data),
+  const { data: earningsResponse, isLoading: listLoading } = useQuery({
+    queryKey: ["sp-earnings-list", page, statusFilter],
+    queryFn: () =>
+      earningsApi
+        .getAll({
+          page,
+          limit,
+          status: statusFilter === "all" ? undefined : statusFilter,
+        })
+        .then((response) => response.data),
   });
+
+  const dashboard: any = dashboardResponse || {};
+  const earnings: any[] = earningsResponse?.data || [];
+  const meta = earningsResponse?.meta || { total: 0 };
+  const totalPages = Math.max(1, Math.ceil((meta.total || 0) / limit));
+
+  const chartData = useMemo(() => {
+    return (dashboard.earningsOverTime || []).map((entry: any) => {
+      const date = new Date(entry._id.year, entry._id.month - 1, entry._id.day);
+      return {
+        date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        commission: entry.commission || 0,
+        deals: entry.deals || 0,
+      };
+    });
+  }, [dashboard]);
 
   const withdrawMutation = useMutation({
-    mutationFn: (data: object) => earningsApi.requestWithdrawal(data),
-    onSuccess: () => toast.success("Withdrawal requested!"),
-    onError: () => toast.error("Failed to request withdrawal"),
+    mutationFn: () => earningsApi.requestWithdrawal({}),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ["sp-earnings-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["sp-earnings-list"] });
+      const amount = response.data?.data?.withdrawnAmount || 0;
+      toast.success(`Withdrawal requested: ${formatCurrency(amount)}`);
+    },
+    onError: (error: any) =>
+      toast.error(error?.response?.data?.message || "No pending earnings to withdraw"),
   });
 
-  const allDeals = deals?.data?.length ? deals.data : mockDeals;
+  const handleExport = async () => {
+    try {
+      const response = await earningsApi.exportReport();
+      const blob = new Blob([response.data], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `earnings-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success("Report exported");
+    } catch (error: any) {
+      toast.error(error?.message || "Export failed");
+    }
+  };
 
   const stats = [
-    { label: "Total Earnings", value: "€24,560", change: "+8.7% vs last month", icon: DollarSign, color: "bg-blue-600" },
-    { label: "This Month", value: "€6,540", change: "+26.8% vs last month", icon: TrendingUp, color: "bg-emerald-600" },
-    { label: "Pending Payout", value: "€2,340", change: "+8.2% vs last month", icon: Clock, color: "bg-amber-600" },
-    { label: "Avg Commission", value: "€480", change: "+14.5% vs last month", icon: DollarSign, color: "bg-purple-600" },
-    { label: "Conversion Rate", value: "24.8%", change: "+1.6% vs last month", icon: TrendingUp, color: "bg-cyan-600" },
+    {
+      label: "Total Earnings",
+      value: formatCurrency(dashboard.totalEarnings || 0),
+      icon: DollarSign,
+      color: "bg-blue-600",
+    },
+    {
+      label: "This Month",
+      value: formatCurrency(dashboard.thisMonth || 0),
+      icon: TrendingUp,
+      color: "bg-emerald-600",
+    },
+    {
+      label: "Pending Payout",
+      value: formatCurrency(dashboard.pendingPayout || 0),
+      icon: Clock,
+      color: "bg-amber-600",
+    },
+    {
+      label: "Avg Commission",
+      value: formatCurrency(dashboard.avgCommission || 0),
+      icon: DollarSign,
+      color: "bg-purple-600",
+    },
   ];
 
   return (
     <div>
-      <Header title="Earnings" subtitle="Track your performance and earnings. The more you close, the more you earn." />
-      <div className="p-6 space-y-5">
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          {stats.map((s) => (
-            <Card key={s.label}>
-              <CardContent className="pt-3 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className={`w-8 h-8 rounded-lg ${s.color} flex items-center justify-center flex-shrink-0`}>
-                    <s.icon className="w-4 h-4 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-base font-bold text-white">{s.value}</p>
-                    <p className="text-[9px] text-gray-400">{s.label}</p>
-                    <p className="text-[9px] text-emerald-400">{s.change}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+      <Header
+        title="Earnings"
+        subtitle="Track your performance and earnings. The more you close, the more you earn."
+        action={
+          <Button size="sm" variant="outline" onClick={handleExport}>
+            <Download className="mr-1 h-3.5 w-3.5" />
+            Export
+          </Button>
+        }
+      />
+      <div className="space-y-5 p-3 sm:p-4 lg:p-6">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {dashboardLoading
+            ? Array.from({ length: 4 }).map((_, index) => (
+                <Card key={index}>
+                  <CardContent className="pt-3 pb-3">
+                    <Skeleton className="h-12 w-full" />
+                  </CardContent>
+                </Card>
+              ))
+            : stats.map((stat) => (
+                <Card key={stat.label}>
+                  <CardContent className="pt-3 pb-3">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${stat.color}`}
+                      >
+                        <stat.icon className="h-4 w-4 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-base font-bold text-white">{stat.value}</p>
+                        <p className="text-[10px] text-gray-400">{stat.label}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* Chart + Deals Table */}
-          <div className="lg:col-span-2 space-y-4">
-            {/* Earnings Chart */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+          <div className="space-y-4 lg:col-span-2">
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm">Earnings Overview</CardTitle>
-                  <div className="flex gap-1">
-                    {["Day", "Week", "Month", "Year"].map(p => (
-                      <button key={p} onClick={() => setPeriod(p)}
-                        className={`px-2 py-1 text-xs rounded-lg ${period === p ? "bg-blue-600 text-white" : "text-gray-400"}`}>{p}</button>
-                    ))}
-                  </div>
-                </div>
+                <CardTitle className="text-sm">Earnings Overview (last 30 days)</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xl font-bold text-white">May 31</span>
-                  <span className="text-xs text-blue-400">€6,540</span>
-                </div>
-                <ResponsiveContainer width="100%" height={180}>
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="earnGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                    <YAxis hide />
-                    <Tooltip contentStyle={{ background: "#0d1a2d", border: "1px solid #1e2d40", borderRadius: "8px", fontSize: "11px" }} />
-                    <Area type="monotone" dataKey="earnings" stroke="#22c55e" fill="url(#earnGrad)" strokeWidth={2} />
-                  </AreaChart>
-                </ResponsiveContainer>
-                {/* View toggles */}
-                <div className="flex gap-2 mt-2">
-                  {["Earnings", "Deals Closed", "Leads Converted"].map(v => (
-                    <button key={v} className={`text-[10px] px-2 py-1 rounded ${v === "Earnings" ? "text-emerald-400 border-b border-emerald-400" : "text-gray-500"}`}>{v}</button>
-                  ))}
-                </div>
+                {chartData.length === 0 ? (
+                  <p className="py-10 text-center text-xs text-gray-500">
+                    No earnings recorded in the last 30 days.
+                  </p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient id="earnGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis hide />
+                      <Tooltip
+                        contentStyle={{
+                          background: "#0d1a2d",
+                          border: "1px solid #1e2d40",
+                          borderRadius: "8px",
+                          fontSize: "11px",
+                        }}
+                        formatter={(value: any) => formatCurrency(value)}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="commission"
+                        stroke="#22c55e"
+                        fill="url(#earnGrad)"
+                        strokeWidth={2}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 
-            {/* Deals Table */}
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Tabs defaultValue="deals">
-                      <TabsList className="h-8">
-                        {["Deals", "Sources", "Payouts"].map(t => (
-                          <TabsTrigger key={t} value={t.toLowerCase()} className="text-xs h-7">{t}</TabsTrigger>
-                        ))}
-                      </TabsList>
-                    </Tabs>
-                  </div>
-                </div>
+                <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+                  <TabsList className="h-8">
+                    {STATUS_TABS.map((tab) => (
+                      <TabsTrigger key={tab.value} value={tab.value} className="h-7 text-xs">
+                        {tab.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
               </CardHeader>
               <CardContent className="p-0">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-[#1e2d40]">
-                      {["Customer", "Deal Amount", "Commission", "Date Closed", "Status", ""].map(h => (
-                        <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allDeals.map((deal: any) => (
-                      <tr key={deal._id} className="border-b border-[#1e2d40] hover:bg-[#0d1a2d]">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-lg bg-[#1e2d40] flex items-center justify-center text-xs font-bold text-gray-300">
-                              {(deal.customer || "??").slice(0, 2).toUpperCase()}
-                            </div>
-                            <div>
-                              <p className="text-xs font-medium text-gray-200">{deal.customer}</p>
-                              <p className="text-[10px] text-gray-500">{deal.type}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-xs font-medium text-gray-200">{formatCurrency(deal.amount)}</td>
-                        <td className="px-4 py-3">
-                          <p className="text-xs font-medium text-emerald-400">{formatCurrency(deal.commission)}</p>
-                          <p className="text-[10px] text-gray-500">{deal.commissionPct}</p>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-400">{formatDate(deal.closedAt)}</td>
-                        <td className="px-4 py-3">
-                          <Badge variant={deal.status === "paid" ? "success" : "warning"} className="text-[10px]">
-                            {deal.status === "paid" ? "✓ Paid" : "⏳ Pending"}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <button className="text-gray-500 text-xs">···</button>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-[#1e2d40]">
+                        {["Customer", "Deal Amount", "Commission", "Date", "Status"].map(
+                          (heading) => (
+                            <th
+                              key={heading}
+                              className="whitespace-nowrap px-4 py-3 text-left text-xs font-medium text-gray-500"
+                            >
+                              {heading}
+                            </th>
+                          )
+                        )}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="flex items-center justify-between px-4 py-3 border-t border-[#1e2d40]">
-                  <p className="text-xs text-gray-500">Showing 1 to 5 of 28 deals</p>
-                  <div className="flex gap-1">
-                    {[1,2,3].map(p => <button key={p} onClick={() => setPage(p)} className={`w-7 h-7 rounded text-xs ${page === p ? "bg-blue-600 text-white" : "text-gray-400"}`}>{p}</button>)}
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setPage(p => p+1)}><ChevronRight className="w-4 h-4" /></Button>
+                    </thead>
+                    <tbody>
+                      {listLoading ? (
+                        Array.from({ length: 5 }).map((_, rowIndex) => (
+                          <tr key={rowIndex} className="border-b border-[#1e2d40]">
+                            {Array.from({ length: 5 }).map((_, cellIndex) => (
+                              <td key={cellIndex} className="px-4 py-3">
+                                <Skeleton className="h-4 w-16" />
+                              </td>
+                            ))}
+                          </tr>
+                        ))
+                      ) : earnings.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={5}
+                            className="px-4 py-10 text-center text-sm text-gray-500"
+                          >
+                            No earnings recorded yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        earnings.map((earning) => (
+                          <tr
+                            key={earning._id}
+                            className="border-b border-[#1e2d40] hover:bg-[#0d1a2d]"
+                          >
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#1e2d40] text-xs font-bold text-gray-300">
+                                  {(earning.customer_id?.name || "??").slice(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="text-xs font-medium text-gray-200">
+                                    {earning.customer_id?.name || "—"}
+                                  </p>
+                                  <p className="text-[10px] text-gray-500">
+                                    {earning.customer_id?.email || ""}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-xs font-medium text-gray-200">
+                              {formatCurrency(earning.amount || 0)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="text-xs font-medium text-emerald-400">
+                                {formatCurrency(earning.commission || 0)}
+                              </p>
+                              <p className="text-[10px] text-gray-500">
+                                {earning.commissionRate || 0}%
+                              </p>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-gray-400">
+                              {earning.paidAt
+                                ? formatDate(earning.paidAt)
+                                : formatDate(earning.createdAt)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge
+                                variant={STATUS_BADGE[earning.status] || "secondary"}
+                                className="text-[10px]"
+                              >
+                                {earning.status}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center justify-between border-t border-[#1e2d40] px-4 py-3">
+                  <p className="text-xs text-gray-500">
+                    {meta.total > 0
+                      ? `${(page - 1) * limit + 1}–${Math.min(
+                          page * limit,
+                          meta.total
+                        )} of ${meta.total}`
+                      : "0 entries"}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => setPage((current) => Math.max(1, current - 1))}
+                      disabled={page === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="px-2 text-xs text-gray-300">
+                      Page {page} of {totalPages}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => setPage((current) => current + 1)}
+                      disabled={page >= totalPages}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Right Panel */}
           <div className="space-y-4">
-            {/* Kora Insights */}
             <Card className="border-emerald-600/20">
               <CardContent className="pt-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
-                  <p className="text-sm font-medium text-white">Kora is Active</p>
+                <div className="mb-3">
+                  <p className="text-xs uppercase tracking-wide text-gray-500">
+                    Ready to withdraw
+                  </p>
+                  <p className="mt-1 text-2xl font-bold text-emerald-400">
+                    {formatCurrency(dashboard.pendingPayout || 0)}
+                  </p>
                 </div>
-                {[
-                  { text: "You earned €1,200 more this week compared to last week.", icon: "📈", color: "bg-emerald-600/10 text-emerald-300" },
-                  { text: "Your best performing source is Instagram (82% of deals).", icon: "🏆", color: "bg-blue-600/10 text-blue-300" },
-                  { text: "You could increase earnings by following up 2 leads.", icon: "💡", color: "bg-amber-600/10 text-amber-300" },
-                ].map((ins, i) => (
-                  <div key={i} className={`${ins.color} rounded-lg p-2.5 mb-2 text-xs`}>
-                    {ins.icon} {ins.text}
-                  </div>
-                ))}
+                <Button
+                  className="w-full"
+                  onClick={() => withdrawMutation.mutate()}
+                  disabled={withdrawMutation.isPending || (dashboard.pendingPayout || 0) <= 0}
+                >
+                  {withdrawMutation.isPending ? "Processing..." : "Request Withdrawal"}
+                </Button>
               </CardContent>
             </Card>
 
-            {/* Quick Actions */}
             <Card>
-              <CardHeader><CardTitle className="text-sm">Quick Actions</CardTitle></CardHeader>
+              <CardHeader>
+                <CardTitle className="text-sm">Quick Actions</CardTitle>
+              </CardHeader>
               <CardContent className="space-y-2">
-                {[
-                  { label: "Withdraw Earnings", icon: "💸", desc: "" },
-                  { label: "View Deals", icon: "📋", desc: "" },
-                  { label: "Export Report", icon: "📊", desc: "" },
-                  { label: "Show Referral Link", icon: "🔗", desc: "" },
-                ].map(a => (
-                  <button key={a.label} onClick={() => a.label === "Withdraw Earnings" ? withdrawMutation.mutate({ amount: 2340 }) : toast.info(a.label)}
-                    className="w-full flex items-center gap-3 p-2.5 bg-[#1e2d40] rounded-xl hover:bg-[#2a3547] transition-colors text-left">
-                    <span className="text-base">{a.icon}</span>
-                    <span className="text-xs text-gray-200 flex-1">{a.label}</span>
-                    <span className="text-gray-500 text-xs">›</span>
-                  </button>
-                ))}
+                <button
+                  onClick={() => setStatusFilter("paid")}
+                  className="flex w-full items-center gap-3 rounded-xl bg-[#1e2d40] p-2.5 text-left transition-colors hover:bg-[#2a3547]"
+                >
+                  <span className="text-base">💰</span>
+                  <span className="flex-1 text-xs text-gray-200">View Paid Earnings</span>
+                  <span className="text-xs text-gray-500">›</span>
+                </button>
+                <button
+                  onClick={handleExport}
+                  className="flex w-full items-center gap-3 rounded-xl bg-[#1e2d40] p-2.5 text-left transition-colors hover:bg-[#2a3547]"
+                >
+                  <span className="text-base">📊</span>
+                  <span className="flex-1 text-xs text-gray-200">Export Report</span>
+                  <span className="text-xs text-gray-500">›</span>
+                </button>
               </CardContent>
             </Card>
           </div>

@@ -1,154 +1,298 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
+
+import { useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { leadsApi, supportApi, inboxApi, activityApi } from "@/lib/api";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
-import { Users, Settings, GitBranch, Zap, Shield, Plus, ChevronRight } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getInitials, timeAgo } from "@/lib/utils";
+import {
+  Calendar,
+  HeadphonesIcon,
+  Mail,
+  MessageCircle,
+  Plus,
+  Target,
+  TrendingUp,
+  UserPlus,
+  Zap,
+} from "lucide-react";
 
-const actionGroups = [
+const QUICK_ACTIONS = [
   {
-    title: "Important",
-    actions: [
-      { icon: "👤", color: "bg-blue-600", title: "Add New Customer", desc: "Create a new customer and setup onboarding", tag: "" },
-      { icon: "🔑", color: "bg-green-600", title: "Generate Access Code", desc: "Generate an activation code for a customer/tool activation.", tag: "Popular" },
-      { icon: "🏢", color: "bg-red-600", title: "Edit Organisation Data", desc: "Update customer information (contact, billing address).", tag: "" },
+    group: "Customers",
+    items: [
+      {
+        icon: UserPlus,
+        color: "bg-blue-600",
+        title: "Add New Customer",
+        desc: "Create a customer profile and start onboarding",
+        href: "/customers",
+      },
+      {
+        icon: Calendar,
+        color: "bg-purple-600",
+        title: "Create Appointment",
+        desc: "Book a slot on your calendar",
+        href: "/calendar",
+      },
+      {
+        icon: MessageCircle,
+        color: "bg-green-600",
+        title: "Send Message",
+        desc: "Reach out to a customer in your inbox",
+        href: "/inbox",
+      },
     ],
   },
   {
-    title: "Support",
-    actions: [
-      { icon: "🔐", color: "bg-amber-600", title: "Login / Access Help", desc: "Fix or reset access, login or reset account issues.", tag: "" },
-      { icon: "📅", color: "bg-purple-600", title: "Calendar / Booking Fix", desc: "Fix calendar issues, issues or availability.", tag: "" },
-      { icon: "📋", color: "bg-blue-600", title: "Create Appointment >", desc: "Create a new appointment for the customer.", tag: "" },
-      { icon: "💬", color: "bg-green-600", title: "Send Message >", desc: "Send a message to one or multiple of the customer.", tag: "" },
+    group: "Sales",
+    items: [
+      {
+        icon: Target,
+        color: "bg-amber-600",
+        title: "Add a Lead",
+        desc: "Capture a new prospect",
+        href: "/leads",
+      },
+      {
+        icon: Zap,
+        color: "bg-pink-600",
+        title: "Generate Leads",
+        desc: "Discover prospects using AI",
+        href: "/lead-generator",
+      },
+      {
+        icon: TrendingUp,
+        color: "bg-emerald-600",
+        title: "View Earnings",
+        desc: "Track your commission and payouts",
+        href: "/earnings",
+      },
     ],
   },
   {
-    title: "Sales",
-    actions: [
-      { icon: "🔄", color: "bg-amber-600", title: "Change Lead Status >", desc: "Update the status of a lead (e.g. New, In Progress).", tag: "" },
-      { icon: "📝", color: "bg-blue-600", title: "Add Note / Call Log >", desc: "Add a note to a customer's log with a due date.", tag: "" },
-      { icon: "👥", color: "bg-green-600", title: "Assign Task >", desc: "Create a task for the customer with a due date.", tag: "" },
-      { icon: "📧", color: "bg-purple-600", title: "Follow Up >", desc: "Create a follow-up action on a contact.", tag: "" },
-    ],
-  },
-  {
-    title: "Security",
-    actions: [
-      { icon: "🔒", color: "bg-red-600", title: "Emergency Lock >", desc: "Immediately lock a customer account. Admin approval required.", tag: "" },
-      { icon: "👁️", color: "bg-blue-600", title: "Impersonate Customer", desc: "Request access to the customer dashboard with customer approval.", tag: "NEW" },
+    group: "Support",
+    items: [
+      {
+        icon: HeadphonesIcon,
+        color: "bg-red-600",
+        title: "Open Support Ticket",
+        desc: "Contact admin if you need help",
+        href: "/support",
+      },
+      {
+        icon: Mail,
+        color: "bg-blue-600",
+        title: "Inbox",
+        desc: "Check unread conversations",
+        href: "/inbox",
+      },
     ],
   },
 ];
-
-const activeActions = [
-  { title: "Call with Michael Brown", sub: "Customer: Fade Masters", priority: "Urgent", status: "Open", time: "10:30 AM" },
-  { title: "Support Request #1041", sub: "Customer: Fresh Legends", priority: "High", status: "In Progress", time: "" },
-  { title: "Follow up with Fade House", sub: "Lead: Fade House", priority: "Medium", status: "Open", time: "Yesterday" },
-  { title: "Add New Customer", sub: "Customer: The Barber Club", priority: "Low", status: "Open", time: "May 19" },
-  { title: "Call with Gentleman's Cuts", sub: "Customer: Gentleman's Cuts", priority: "Low", status: "In Progress", time: "May 19" },
-];
-
-const priorityColors: Record<string, string> = { Urgent: "destructive", High: "destructive", Medium: "warning", Low: "secondary" };
-const statusColors: Record<string, string> = { Open: "default", "In Progress": "warning", Completed: "success" };
 
 export default function ActionsPage() {
+  const router = useRouter();
+
+  const { data: leadsResponse } = useQuery({
+    queryKey: ["actions-leads"],
+    queryFn: () =>
+      leadsApi.getAll({ limit: 5, status: "new" }).then((response) => response.data),
+  });
+
+  const { data: ticketsResponse } = useQuery({
+    queryKey: ["actions-tickets"],
+    queryFn: () =>
+      supportApi.getAll({ limit: 5 }).then((response) => response.data),
+  });
+
+  const { data: inboxResponse } = useQuery({
+    queryKey: ["actions-inbox"],
+    queryFn: () => inboxApi.getChats({ limit: 5 }).then((response) => response.data),
+  });
+
+  const { data: activityResponse, isLoading: activityLoading } = useQuery({
+    queryKey: ["actions-activity"],
+    queryFn: () => activityApi.getAll({ limit: 6 }).then((response) => response.data),
+  });
+
+  const newLeads: any[] = leadsResponse?.data || [];
+  const openTickets: any[] = (ticketsResponse?.data || []).filter(
+    (ticket: any) => ticket.status !== "closed" && ticket.status !== "resolved"
+  );
+  const chats: any[] = inboxResponse?.data || [];
+  const activities: any[] = activityResponse?.data || [];
+
+  const stats = useMemo(
+    () => [
+      { label: "New leads", value: newLeads.length, color: "text-blue-400" },
+      {
+        label: "Open tickets",
+        value: openTickets.length,
+        color: "text-amber-400",
+      },
+      { label: "Inbox chats", value: chats.length, color: "text-purple-400" },
+    ],
+    [newLeads, openTickets, chats]
+  );
+
   return (
     <div>
-      <Header title="Actions" subtitle="Manage all your tasks, processes and support cases in one place." />
-      <div className="p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
-          {/* Actions Grid */}
-          <div className="lg:col-span-3 space-y-5">
-            {/* Filter Tabs */}
-            <div className="flex gap-2 flex-wrap">
-              {["All", "Important", "Customers", "Sales", "Security", "Support"].map(t => (
-                <button key={t} className={`px-3 py-1.5 rounded-lg text-xs ${t === "All" ? "bg-blue-600 text-white" : "bg-[#1e2d40] text-gray-400 hover:text-gray-200"}`}>{t}</button>
+      <Header
+        title="Actions"
+        subtitle="Quick-launch the things you do most and stay on top of open items."
+      />
+      <div className="p-3 sm:p-4 lg:p-6">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-4">
+          <div className="space-y-5 lg:col-span-3">
+            <div className="grid grid-cols-3 gap-3">
+              {stats.map((stat) => (
+                <Card key={stat.label}>
+                  <CardContent className="pt-4">
+                    <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+                    <p className="text-[11px] text-gray-400">{stat.label}</p>
+                  </CardContent>
+                </Card>
               ))}
             </div>
 
-            {actionGroups.map(group => (
-              <div key={group.title}>
-                <h3 className="text-sm font-semibold text-gray-200 mb-3">{group.title}:</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {group.actions.map(action => (
-                    <Card key={action.title} className="hover:border-blue-600/40 transition-colors cursor-pointer group">
-                      <CardContent className="p-3">
-                        <div className="flex items-start justify-between mb-2">
-                          <div className={`w-8 h-8 rounded-lg ${action.color} flex items-center justify-center text-lg`}>{action.icon}</div>
-                          {action.tag && <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${action.tag === "NEW" ? "bg-blue-600 text-white" : "bg-blue-600/20 text-blue-400"}`}>{action.tag}</span>}
-                        </div>
-                        <p className="text-xs font-medium text-gray-200 mb-1">{action.title}</p>
-                        <p className="text-[10px] text-gray-500 leading-relaxed">{action.desc}</p>
-                        <button
-                          onClick={() => toast.info(`Starting: ${action.title}`)}
-                          className="mt-2 text-[10px] text-blue-400 hover:text-blue-300 opacity-0 group-hover:opacity-100 transition-opacity">
-                          Start Workflow →
-                        </button>
-                      </CardContent>
-                    </Card>
-                  ))}
+            {QUICK_ACTIONS.map((group) => (
+              <div key={group.group}>
+                <h3 className="mb-3 text-sm font-semibold text-gray-200">{group.group}</h3>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <Card
+                        key={item.title}
+                        onClick={() => router.push(item.href)}
+                        className="group cursor-pointer transition-colors hover:border-blue-600/40"
+                      >
+                        <CardContent className="p-3">
+                          <div className="mb-2 flex items-start justify-between">
+                            <div
+                              className={`flex h-8 w-8 items-center justify-center rounded-lg ${item.color}`}
+                            >
+                              <Icon className="h-4 w-4 text-white" />
+                            </div>
+                          </div>
+                          <p className="mb-1 text-xs font-medium text-gray-200">
+                            {item.title}
+                          </p>
+                          <p className="text-[10px] leading-relaxed text-gray-500">
+                            {item.desc}
+                          </p>
+                          <p className="mt-2 text-[10px] text-blue-400 opacity-0 transition-opacity group-hover:opacity-100">
+                            Open →
+                          </p>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Right Panel */}
           <div className="space-y-4">
-            {/* Active Actions */}
             <Card>
               <CardHeader>
-                <div className="flex justify-between">
-                  <CardTitle className="text-sm">Active Actions <Badge variant="default" className="text-[9px] ml-1">4</Badge></CardTitle>
-                  <button className="text-xs text-blue-400">View all</button>
-                </div>
+                <CardTitle className="text-sm">New Leads</CardTitle>
               </CardHeader>
-              <CardContent>
-                {activeActions.map((a, i) => (
-                  <div key={i} className="flex items-start gap-2 py-2.5 border-b border-[#1e2d40] last:border-0">
-                    <div className="w-7 h-7 rounded-lg bg-[#1e2d40] flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Users className="w-3.5 h-3.5 text-blue-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-gray-200 truncate">{a.title}</p>
-                      <p className="text-[10px] text-gray-500 truncate">{a.sub}</p>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <Badge variant={priorityColors[a.priority] as any} className="text-[9px]">↑ {a.priority}</Badge>
-                        {a.time && <span className="text-[10px] text-gray-500">{a.time}</span>}
+              <CardContent className="space-y-2">
+                {newLeads.length === 0 ? (
+                  <p className="text-xs text-gray-500">No new leads.</p>
+                ) : (
+                  newLeads.map((lead) => (
+                    <button
+                      key={lead._id}
+                      onClick={() => router.push("/leads")}
+                      className="flex w-full items-center gap-2 rounded-lg p-1.5 text-left hover:bg-[#1e2d40]"
+                    >
+                      <Avatar className="h-6 w-6">
+                        <AvatarFallback className="text-[9px]">
+                          {getInitials(lead.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs text-gray-200">{lead.name}</p>
+                        <p className="truncate text-[10px] text-gray-500">
+                          {lead.company || lead.email}
+                        </p>
                       </div>
-                    </div>
-                    <Badge variant={statusColors[a.status] as any} className="text-[9px] flex-shrink-0">{a.status}</Badge>
-                  </div>
-                ))}
+                    </button>
+                  ))
+                )}
               </CardContent>
             </Card>
 
-            {/* Kora Assistant */}
-            <Card className="border-blue-600/20">
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-base">🤖</span>
-                  <p className="text-sm font-medium text-white">Kora Assistant</p>
-                  <span className="flex items-center gap-1 text-[10px] text-emerald-400 ml-auto"><span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />Online</span>
-                </div>
-                <div className="space-y-2 mb-3">
-                  {[
-                    { msg: "Can you help me create a new customer?", sender: "user" },
-                    { msg: "Sure! I can guide you through the 'Add New Customer' process and try to resolve this quickly.", sender: "kora" },
-                    { msg: "Please like me to start the 'Add New Customer' process?", sender: "kora" },
-                    { msg: "Yes, start workflow!", sender: "user" },
-                  ].map((m, i) => (
-                    <div key={i} className={`flex ${m.sender === "user" ? "justify-end" : "items-start gap-1.5"}`}>
-                      {m.sender === "kora" && <span className="text-sm flex-shrink-0">🤖</span>}
-                      <div className={`max-w-[85%] rounded-xl px-2.5 py-1.5 ${m.sender === "user" ? "bg-blue-600 text-white" : "bg-[#1e2d40] text-gray-200"}`}>
-                        <p className="text-[10px]">{m.msg}</p>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Open Tickets</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {openTickets.length === 0 ? (
+                  <p className="text-xs text-gray-500">No open tickets.</p>
+                ) : (
+                  openTickets.map((ticket: any) => (
+                    <button
+                      key={ticket._id}
+                      onClick={() => router.push("/support")}
+                      className="flex w-full items-start gap-2 rounded-lg p-1.5 text-left hover:bg-[#1e2d40]"
+                    >
+                      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[#1e2d40]">
+                        <HeadphonesIcon className="h-3 w-3 text-amber-400" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs text-gray-200">{ticket.subject}</p>
+                        <p className="text-[10px] text-gray-500">
+                          {ticket.ticket_id} · {ticket.status}
+                        </p>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Recent Activity</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {activityLoading ? (
+                  <Skeleton className="h-20 w-full" />
+                ) : activities.length === 0 ? (
+                  <p className="text-xs text-gray-500">No recent activity.</p>
+                ) : (
+                  activities.map((activity: any) => (
+                    <div key={activity._id} className="flex items-start gap-2">
+                      <Avatar className="h-6 w-6">
+                        {activity.user_id?.profileImage?.url ? (
+                          <AvatarImage
+                            src={activity.user_id.profileImage.url}
+                            alt={activity.user_id?.name}
+                          />
+                        ) : (
+                          <AvatarFallback className="text-[9px]">
+                            {getInitials(activity.user_id?.name || "S")}
+                          </AvatarFallback>
+                        )}
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs text-gray-200">{activity.action}</p>
+                        <p className="text-[10px] text-gray-500">
+                          {timeAgo(activity.timestamp || activity.createdAt)}
+                        </p>
                       </div>
                     </div>
-                  ))}
-                </div>
-                <input className="w-full text-xs bg-[#1e2d40] border border-[#2a3547] rounded-lg px-3 py-2 text-gray-300 placeholder:text-gray-500 focus:outline-none"
-                  placeholder="Type your message..." />
+                  ))
+                )}
               </CardContent>
             </Card>
           </div>
