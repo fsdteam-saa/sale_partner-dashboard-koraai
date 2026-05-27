@@ -21,8 +21,8 @@ const loginErrorMessages: Record<string, string> = {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("salepartner@gmail.com");
-  const [password, setPassword] = useState("123456");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState("");
@@ -80,7 +80,7 @@ export default function LoginPage() {
           <Input
             id="email"
             type="email"
-            placeholder="admin@example.com"
+            placeholder="example@gmail.com"
             value={email}
             onChange={(e) => {
               setEmail(e.target.value);
