@@ -6,6 +6,8 @@ export const authApi = {
   verifyResetOtp: (data: { email: string; otp: string }) => api.post("/auth/verify-reset-otp", data),
   resetPassword: (data: object) => api.post("/auth/reset-password", data),
   logout: () => api.post("/auth/logout"),
+  addBusinessOwner: (data: { name: string; email: string; password: string; phoneNumber: string }) =>
+    api.post("/auth/add-business-owner", data),
 };
 
 export const userApi = {

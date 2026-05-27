@@ -40,6 +40,7 @@ export function Sidebar() {
   const { data: session } = useSession();
   const { isOpen, setIsOpen } = useMobileNav();
   const [collapsed, setCollapsed] = useState(false);
+
   const { data: profileResponse } = useQuery({
     queryKey: ["user-profile"],
     queryFn: () => userApi.getProfile().then((r) => r.data),
