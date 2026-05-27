@@ -202,7 +202,7 @@ export default function CustomersPage() {
                     setPage(1);
                   }}
                 >
-                  <SelectTrigger className="w-36">
+                  <SelectTrigger className="w-full sm:w-36">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

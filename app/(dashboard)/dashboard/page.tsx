@@ -263,7 +263,7 @@ export default function PartnerDashboardPage() {
             <CardTitle className="text-sm">Lead Pipeline Snapshot</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
               {["new", "contacted", "qualified", "proposal", "won", "lost"].map((status) => (
                 <div key={status} className="rounded-xl bg-[#1e2d40] p-3">
                   <p className="text-sm font-bold text-white">{leadsByStatus[status] || 0}</p>

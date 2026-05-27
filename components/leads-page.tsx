@@ -93,7 +93,7 @@ export default function LeadsPage() {
         title="Leads"
         subtitle="Live lead pipeline data for this sales partner account."
       />
-      <div className="p-6 space-y-5">
+      <div className="space-y-5 p-3 sm:p-4 lg:p-6">
         <div className="flex flex-wrap gap-1 bg-[#0d1a2d] p-1 rounded-lg w-fit">
           {STATUSES.map((status) => (
             <button
@@ -145,6 +145,7 @@ export default function LeadsPage() {
                   <p className="text-sm text-gray-500">No leads found for this filter.</p>
                 </div>
               ) : (
+                <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-[#1e2d40]">
@@ -225,6 +226,7 @@ export default function LeadsPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
 
               <div className="flex items-center justify-between px-4 py-3 border-t border-[#1e2d40]">
